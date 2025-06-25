@@ -512,6 +512,7 @@ void FixpositionDriverNode::StopNode() {
     odometry_ecef_pub_.reset();
     odometry_enu_pub_.reset();
     odometry_llh_pub_.reset();
+    odometry_utm_pub_.reset();
     odometry_smooth_pub_.reset();
     odometry_enu_smooth_pub_.reset();
     // - Orientation

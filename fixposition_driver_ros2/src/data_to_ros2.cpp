@@ -162,7 +162,7 @@ void PublishFpaOdometryDataImu(const fpa::FpaOdometryPayload& payload, bool nav2
 void PublishFpaOdometryDataNavSatFixAndUtm(const fpa::FpaOdometryPayload& payload, bool nav2_mode_,
                                      rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr& pubNavSatFix,
                                      rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr& pubUtmPose) {
-    if (pubNavSatFix->get_subscription_count() > 0) {
+    if (pubNavSatFix->get_subscription_count() > 0 || pubUtmPose->get_subscription_count() > 0) {
         sensor_msgs::msg::NavSatFix msg;
         msg.header.stamp = ros2::utils::ConvTime(FpaGpsTimeToTime(payload.gps_time));
         if (nav2_mode_) {
@@ -208,27 +208,37 @@ void PublishFpaOdometryDataNavSatFixAndUtm(const fpa::FpaOdometryPayload& payloa
         }
 
         // UTM conversion
-        geographic_msgs::msg::GeoPoint geo_point;
-        geo_point.latitude = msg->latitude;
-        geo_point.longitude = msg->longitude;
-        geo_point.altitude = msg->altitude;
+        geographic_msgs::msg::GeoPoint geoPointLlh;
+        geoPointLlh.latitude = msg.latitude;
+        geoPointLlh.longitude = msg.longitude;
+        geoPointLlh.altitude = msg.altitude;
 
-        geodesy::UTMPoint utm_point(geodesy::fromMsg(geo_point));
+        geographic_msgs::msg::GeoPoint geoPointUtm;
 
-        geometry_msgs::msg::PoseWithCovarianceStamped utm_pose;
-        utm_pose.header = msg->header;
-        utm_pose.pose.pose.position.x = utm_point.easting;
-        utm_pose.pose.pose.position.y = utm_point.northing;
-        utm_pose.pose.pose.position.z = utm_point.altitude;
+        geodesy::fromMsg(geoPointLlh, geoPointUtm);
 
-        // For simplicity, zero orientation and copying covariance directly.
-        utm_pose.pose.pose.orientation.w = 1.0;
-        utm_pose.pose.covariance = msg->position_covariance;
+        geodesy::UTMPoint utm_point(geoPointUtm);
 
+        geometry_msgs::msg::PoseWithCovarianceStamped utmPose;
+        utmPose.header = msg.header;
+        utmPose.pose.pose.position.x = utm_point.easting;
+        utmPose.pose.pose.position.y = utm_point.northing;
+        utmPose.pose.pose.position.z = utm_point.altitude;
+
+        utmPose.pose.pose.orientation.x = pose.orientation.x();
+        utmPose.pose.pose.orientation.y = pose.orientation.y();
+        utmPose.pose.pose.orientation.z = pose.orientation.z();
+        utmPose.pose.pose.orientation.w = pose.orientation.w();
+        
+        // Convert covariance matrix 3x3 -> 6x6
+        Eigen::Matrix<double, 6, 6> cov_6x6 = Eigen::Matrix<double, 6, 6>::Zero();
+        cov_6x6.topLeftCorner(3, 3) = cov_map;
+
+        Eigen::Map<Eigen::Matrix<double, 6, 6>>(utmPose.pose.covariance.data()) = cov_6x6;
 
         // Publish messages
+        pubUtmPose->publish(utmPose);
         pubNavSatFix->publish(msg);
-        pubUtmPose->publish(utm_pose);
     }
 }
 
